@@ -1,0 +1,499 @@
+// ============================================================================
+// TalentBridge — Prisma Schema
+// University Talent, Graduation Project & Career Development Ecosystem
+// PostgreSQL provider. See README for the ERD overview.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  STUDENT
+  MENTOR
+  RECRUITER
+  ADMIN
+}
+
+enum AcademicLevel {
+  FRESHMAN // Year 1  -> Growth tier
+  SOPHOMORE // Year 2  -> Growth tier
+  JUNIOR // Year 3    -> Professional tier
+  SENIOR // Year 4    -> Professional tier
+  GRADUATE // Alumni   -> Professional tier
+}
+
+enum StudentTier {
+  GROWTH
+  PROFESSIONAL
+}
+
+enum AccountStatus {
+  PENDING // awaiting admin verification
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum MilestoneStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ProjectStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED // visible publicly
+  REJECTED
+  ARCHIVED
+}
+
+enum BookingStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  CANCELLED
+  DECLINED
+}
+
+enum SessionType {
+  CAREER_GUIDANCE
+  TECHNICAL_REVIEW
+  PROJECT_MENTORING
+  RESUME_REVIEW
+  INTERVIEW_PREP
+  OTHER
+}
+
+enum LocationType {
+  REMOTE
+  ONSITE
+  HYBRID
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  INTERNSHIP
+  TRAINING
+  CONTRACT
+}
+
+enum JobStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+enum ApplicationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  INTERVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum NotificationType {
+  SYSTEM
+  BOOKING
+  APPLICATION
+  PROJECT
+  TIER_UPGRADE
+  MESSAGE
+}
+
+enum Visibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+// ---------------------------------------------------------------------------
+// Core identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String        @id @default(cuid())
+  email         String        @unique
+  name          String
+  passwordHash  String?
+  image         String?
+  role          Role          @default(STUDENT)
+  status        AccountStatus @default(PENDING)
+  bio           String?
+  phone         String?
+  verifiedAt    DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  studentProfile  StudentProfile?
+  mentorProfile   MentorProfile?
+  notifications   Notification[]
+  managedJobs     JobPosting[]
+  reviews         Review[] @relation("Reviewer")
+  receivedReviews Review[] @relation("MentorReviewed")
+  reports         Report[]
+
+  @@index([role])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Registry data
+// ---------------------------------------------------------------------------
+
+model CareerTrack {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  color       String?
+  skills      String[]
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  students   StudentProfile[]
+  milestones StudentMilestone[]
+  jobs       JobPosting[]
+
+  @@index([isActive, order])
+}
+
+// ---------------------------------------------------------------------------
+// Students
+// ---------------------------------------------------------------------------
+
+model StudentProfile {
+  id             String        @id @default(cuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level          AcademicLevel @default(FRESHMAN)
+  tier           StudentTier   @default(GROWTH)
+  headline       String? // e.g. "Backend Engineer in training"
+  careerTrackId  String?
+  careerTrack    CareerTrack?  @relation(fields: [careerTrackId], references: [id])
+  bio            String?
+  city           String?
+  graduationYear Int?
+  gpa            Float?
+  resumeUrl      String?
+  resumeName     String?
+  website        String?
+  github         String?
+  linkedin       String?
+  twitter        String?
+  preferredTags  String[]
+  featuredSkills String[]
+  showcase       Boolean       @default(false) // public portfolio visible
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  certifications Certification[]
+  experiences    Experience[]
+  milestones     StudentMilestone[]
+  projects       ProjectMember[]
+  bookings       Booking[]
+  applications   Application[]
+  ownedProjects  GraduationProject[] @relation("ProjectOwner")
+
+  @@index([tier])
+  @@index([careerTrackId])
+  @@index([showcase])
+}
+
+model Certification {
+  id        String   @id @default(cuid())
+  studentId String
+  student   StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  name      String
+  issuer    String
+  url       String?
+  issuedAt  DateTime?
+  verifyId  String? // verification code
+  createdAt DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model Experience {
+  id          String   @id @default(cuid())
+  studentId   String
+  student     StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  title       String
+  company     String
+  companyLogo String?
+  startDate   DateTime
+  endDate     DateTime?
+  current     Boolean  @default(false)
+  description String?
+  skills      String[]
+  createdAt   DateTime @default(now())
+
+  @@index([studentId])
+}
+
+model StudentMilestone {
+  id          String          @id @default(cuid())
+  studentId   String
+  student     StudentProfile  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  trackId     String
+  track       CareerTrack     @relation(fields: [trackId], references: [id])
+  title       String
+  description String?
+  resourceUrl String?
+  status      MilestoneStatus @default(PLANNED)
+  progress    Int             @default(0) // 0-100
+  achievedAt  DateTime?
+  createdAt   DateTime        @default(now())
+
+  @@index([studentId, trackId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Graduation Projects
+// ---------------------------------------------------------------------------
+
+model GraduationProject {
+  id            String        @id @default(cuid())
+  title         String
+  slug          String        @unique
+  abstract      String
+  about         String?
+  domain        String        @default("Software Engineering")
+  techStack     String[]
+  academicYear  String        // e.g. "2025/2026"
+  imageGallery  String[]
+  coverImage    String?
+  videoDemoUrl  String?
+  liveDemoUrl   String?
+  githubRepoUrl String?
+  docsPdfUrl    String?
+  rating        Float?        @default(0) // 0-5 committee rating
+  totalVotes    Int           @default(0)
+  isFeatured    Boolean       @default(false)
+  visibility    Visibility    @default(PUBLIC)
+  status        ProjectStatus @default(DRAFT)
+  advisorName   String?
+  ownerId       String?
+  owner         StudentProfile? @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  members ProjectMember[]
+
+  @@index([status])
+  @@index([domain])
+  @@index([academicYear])
+  @@index([isFeatured])
+}
+
+model ProjectMember {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       GraduationProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  roleInProject String   @default("Member") // e.g. Team Lead, Frontend, ML Engineer
+  isLead        Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  @@unique([projectId, studentId])
+  @@index([studentId])
+}
+
+// ---------------------------------------------------------------------------
+// Mentorship
+// ---------------------------------------------------------------------------
+
+model MentorProfile {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  headline           String?
+  bio                String?
+  domains            String[] // operational domains, e.g. ["Backend", "AI/ML"]
+  yearsOfExperience  Int      @default(0)
+  isFree             Boolean  @default(false)
+  hourlyRate         Float?
+  sessionLengths     Int[]    @default([15, 30, 60]) // minutes
+  videoLinkPreference String? // google_meet | zoom | other
+  calendarEnabled    Boolean  @default(true)
+  maxBookingsPerDay  Int      @default(6)
+  avgRating          Float    @default(0)
+  totalSessions      Int      @default(0)
+  isVerified         Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  slots     AvailabilitySlot[]
+  bookings  Booking[] @relation("MentorBookings")
+
+  @@index([isVerified])
+}
+
+model AvailabilitySlot {
+  id              String      @id @default(cuid())
+  mentorProfileId String
+  mentor          MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+  startsAt        DateTime
+  endsAt          DateTime
+  isBooked        Boolean     @default(false)
+  bookingId       String?     @unique
+  booking         Booking?
+  createdAt       DateTime    @default(now())
+
+  @@unique([mentorProfileId, startsAt])
+  @@index([mentorProfileId, isBooked, startsAt])
+  @@index([startsAt])
+}
+
+model Booking {
+  id                 String        @id @default(cuid())
+  studentId          String
+  student            StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  mentorProfileId    String
+  mentor             MentorProfile @relation("MentorBookings", fields: [mentorProfileId], references: [id], onDelete: Cascade)
+  slotId             String? @unique
+  slot               AvailabilitySlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+  status             BookingStatus @default(PENDING)
+  sessionType        SessionType   @default(CAREER_GUIDANCE)
+  sessionLength      Int           @default(30)
+  scheduledFor       DateTime
+  endsAt             DateTime
+  preSessionQuestions String?
+  notes              String?
+  meetingLink        String?
+  studentFeedback    String?
+  studentRating      Int?          // 1-5
+  mentorNotes        String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@index([studentId, status])
+  @@index([mentorProfileId, status])
+  @@index([scheduledFor])
+  @@index([status, scheduledFor])
+}
+
+model Review {
+  id          String   @id @default(cuid())
+  reviewerId  String
+  reviewer    User     @relation("Reviewer", fields: [reviewerId], references: [id], onDelete: Cascade)
+  mentorId    String
+  mentor      User     @relation("MentorReviewed", fields: [mentorId], references: [id], onDelete: Cascade)
+  bookingId   String?  @unique
+  rating      Int
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  @@index([mentorId])
+}
+
+// ---------------------------------------------------------------------------
+// Career Hub
+// ---------------------------------------------------------------------------
+
+model JobPosting {
+  id                  String         @id @default(cuid())
+  recruiterId         String
+  recruiter           User           @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  title               String
+  description         String
+  companyName         String
+  companyLogo         String?
+  companyWebsite      String?
+  locationType        LocationType   @default(REMOTE)
+  location            String?
+  employmentType      EmploymentType @default(INTERNSHIP)
+  trackId             String?
+  track               CareerTrack?   @relation(fields: [trackId], references: [id])
+  requirements        String[]
+  salaryMin           Float?
+  salaryMax           Float?
+  currency            String         @default("USD")
+  isPaid              Boolean        @default(true)
+  applicationDeadline DateTime?
+  status              JobStatus      @default(OPEN)
+  isTraining          Boolean        @default(false)
+  skills              String[]
+  views               Int            @default(0)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  applications Application[]
+
+  @@index([status, createdAt])
+  @@index([employmentType])
+  @@index([trackId])
+}
+
+model Application {
+  id              String            @id @default(cuid())
+  jobId           String
+  job             JobPosting        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  studentId       String
+  student         StudentProfile    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status          ApplicationStatus @default(SUBMITTED)
+  coverLetter     String?
+  snapshot        Json? // portfolio snapshot JSON at time of application
+  recruiterNotes  String?
+  viewedAt        DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([jobId, studentId])
+  @@index([status])
+  @@index([studentId, status])
+  @@index([jobId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Notifications & messaging
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType @default(SYSTEM)
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Content moderation helpers
+// ---------------------------------------------------------------------------
+
+model Report {
+  id          String   @id @default(cuid())
+  reporterId  String
+  reporter    User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType  String // PROJECT | JOB | PROFILE | PROJECT_MEMBER
+  targetId    String
+  reason      String
+  status      String   @default("OPEN") // OPEN | REVIEWED | RESOLVED | DISMISSED
+  handledById String?
+  createdAt   DateTime @default(now())
+
+  @@index([status])
+}

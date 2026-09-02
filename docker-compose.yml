@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: talentbridge-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: talentbridge
+      POSTGRES_PASSWORD: talentbridge
+      POSTGRES_DB: talentbridge
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U talentbridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: talentbridge-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: talentbridge-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://talentbridge:talentbridge@db:5432/talentbridge
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: change-me-in-production
+      REDIS_URL: redis://redis:6379
+      REDIS_ENABLED: "true"
+    ports:
+      - "3000:3000"
+    command: sh -c "npx prisma db push && npx prisma db seed && npm run start"
+
+volumes:
+  pgdata:
+  redisdata:
